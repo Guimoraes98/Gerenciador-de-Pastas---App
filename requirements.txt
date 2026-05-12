@@ -1,0 +1,23 @@
+# =============================================================
+#  requirements.txt — Dependências do App Efitecsolar
+# =============================================================
+
+# Interface gráfica
+customtkinter>=5.2.0
+Pillow>=10.0.0
+tkinterdnd2>=0.3.0
+
+# Banco de dados online
+supabase>=2.0.0
+
+# Google Drive
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.0.0
+
+# Leitura de PDF (para identificação futura de documentos)
+PyMuPDF>=1.23.0
+
+# Utilitários
+packaging>=23.0

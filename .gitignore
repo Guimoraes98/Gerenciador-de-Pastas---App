@@ -1,0 +1,33 @@
+# Banco de dados local
+efitec_local.db
+
+# Sessão e tokens OAuth
+session.json
+drive_token.json
+
+# Credenciais Google Drive (nunca comitar!)
+assets/credentials.json
+
+# PyInstaller
+dist/
+build/
+*.spec.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Inno Setup output
+Output/
+
+# IDE e ferramentas
+.vscode/
+.idea/
+.claude/
+*.swp
+
+# Windows
+Thumbs.db
+desktop.ini
