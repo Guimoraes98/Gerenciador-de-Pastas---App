@@ -9,7 +9,7 @@
 ; =============================================================
 
 #define AppName    "Efitecsolar - Gerenciador de Pastas"
-#define AppVersion "1.0.3"
+#define AppVersion "1.0.4"
 #define AppExeName "Efitecsolar.exe"
 #define AppPublisher "Efitecsolar"
 
