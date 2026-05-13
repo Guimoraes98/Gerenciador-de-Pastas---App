@@ -32,6 +32,51 @@ def testar_conexao() -> bool:
         return False
 
 
+def puxar_usuarios_do_supabase() -> int:
+    """
+    Busca todos os usuários do Supabase e cria/atualiza no banco local.
+    Usado em PCs novos para permitir login antes da primeira sincronização.
+    Retorna o número de registros processados.
+    """
+    from datetime import datetime
+    _now = lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        client = _get_client()
+        r = client.table("usuarios").select(
+            "id, nome, email, senha_hash, tipo, ativo"
+        ).execute()
+        count = 0
+        for u in (r.data or []):
+            try:
+                with local_db.get_conn() as conn:
+                    row = conn.execute(
+                        "SELECT id FROM usuarios WHERE email = ?", (u["email"],)
+                    ).fetchone()
+                    if row:
+                        conn.execute("""
+                            UPDATE usuarios
+                            SET nome=?, senha_hash=?, tipo=?, ativo=?,
+                                supabase_id=?, atualizado_em=?
+                            WHERE email=?
+                        """, (u["nome"], u["senha_hash"], u["tipo"],
+                              1 if u["ativo"] else 0,
+                              str(u["id"]), _now(), u["email"]))
+                    else:
+                        conn.execute("""
+                            INSERT INTO usuarios
+                                (nome, email, senha_hash, tipo, ativo, supabase_id)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (u["nome"], u["email"], u["senha_hash"], u["tipo"],
+                              1 if u["ativo"] else 0, str(u["id"])))
+                count += 1
+            except Exception:
+                pass
+        return count
+    except Exception:
+        return 0
+
+
 # ------------------------------------------------------------------
 # Sync principal
 # ------------------------------------------------------------------

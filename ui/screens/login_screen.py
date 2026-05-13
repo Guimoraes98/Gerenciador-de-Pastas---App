@@ -33,6 +33,17 @@ class LoginScreen(ctk.CTkFrame):
         self._build_left()
         self._build_right()
 
+        # Pré-carrega usuários do Supabase silenciosamente enquanto o usuário digita
+        import threading
+        threading.Thread(target=self._pre_sincronizar_usuarios, daemon=True).start()
+
+    def _pre_sincronizar_usuarios(self):
+        try:
+            from services import supabase_client
+            supabase_client.puxar_usuarios_do_supabase()
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Painel esquerdo — banner + logo
     # ------------------------------------------------------------------
@@ -240,6 +251,17 @@ class LoginScreen(ctk.CTkFrame):
         self.update()
 
         ok, usuario = local_db.autenticar(email, senha)
+
+        if not ok:
+            # Usuário não encontrado localmente — tenta sincronizar do Supabase
+            self._erro_lbl.configure(text="Verificando na nuvem...")
+            self.update()
+            try:
+                from services import supabase_client
+                supabase_client.puxar_usuarios_do_supabase()
+                ok, usuario = local_db.autenticar(email, senha)
+            except Exception:
+                pass
 
         self._btn_login.configure(state="normal", text="Entrar")
 

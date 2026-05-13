@@ -99,9 +99,12 @@ class App(_AppBase):
         self.update_idletasks()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        x  = (sw - WINDOW_WIDTH) // 2
-        y  = (sh - WINDOW_HEIGHT) // 2
-        self.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{x}+{y}")
+        # Adapta ao tamanho da tela: até 92% da resolução, dentro dos limites configurados
+        w = max(MIN_WIDTH,  min(WINDOW_WIDTH,  int(sw * 0.92)))
+        h = max(MIN_HEIGHT, min(WINDOW_HEIGHT, int(sh * 0.92)))
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _validar_sessao(self, sessao: dict) -> bool:
         """Confirma que o usuário da sessão ainda existe e está ativo no banco."""
