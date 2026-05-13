@@ -5,7 +5,6 @@
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import urllib.request
 from urllib.error import URLError
@@ -94,13 +93,13 @@ def baixar_e_instalar(url: str, nome_arquivo: str, on_progress=None) -> bool:
     except Exception:
         return False
 
-    # Script .bat que espera o app fechar e então roda o instalador
+    # Script .bat que espera o app fechar completamente e então roda o instalador
     bat = os.path.join(tempfile.gettempdir(), "efitec_update.bat")
     with open(bat, "w") as f:
         f.write(
             f'@echo off\n'
-            f'timeout /t 2 /nobreak > nul\n'
-            f'"{dest}" /SILENT /SUPPRESSMSGBOXES\n'
+            f'timeout /t 6 /nobreak > nul\n'
+            f'"{dest}" /SILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS\n'
         )
 
     subprocess.Popen(["cmd", "/c", bat], creationflags=subprocess.CREATE_NO_WINDOW)
