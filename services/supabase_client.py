@@ -1,17 +1,24 @@
 # =============================================================
-#  services/supabase_client.py — Sync com Supabase
+#  services/supabase_client.py — Sync bidirecional com Supabase
 # =============================================================
 #
 #  Estratégia:
-#    - Push: envia registros locais para o Supabase (backup + visibilidade ADM)
-#    - Os registros com supabase_id já preenchido são atualizados (UPDATE)
-#    - Os sem supabase_id são inseridos (INSERT) e o ID retornado é salvo
+#    PULL (Supabase → local): traz dados de outros PCs/usuários
+#      Ordem: usuarios → pastas → documentos
+#    PUSH (local → Supabase): envia dados locais como backup
+#      Ordem: usuarios → metas → pastas → documentos
 #
-#  Ordem: usuarios → metas → pastas → documentos (respeita FKs)
+#  sincronizar_tudo() = pull + push (chamado pelo loop de 5 min
+#  e pelo botão "Sincronizar Agora")
 # =============================================================
 
+from datetime import datetime
 from config import SUPABASE_URL, SUPABASE_KEY
 from database import local_db
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ------------------------------------------------------------------
@@ -32,36 +39,32 @@ def testar_conexao() -> bool:
         return False
 
 
-def puxar_usuarios_do_supabase() -> int:
-    """
-    Busca todos os usuários do Supabase e cria/atualiza no banco local.
-    Usado em PCs novos para permitir login antes da primeira sincronização.
-    Retorna o número de registros processados.
-    """
-    from datetime import datetime
-    _now = lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# ------------------------------------------------------------------
+# Pull por tabela (Supabase → local)
+# ------------------------------------------------------------------
 
+def _pull_usuarios(client, res: dict):
+    """Puxa todos os usuários do Supabase e cria/atualiza localmente."""
     try:
-        client = _get_client()
         r = client.table("usuarios").select(
             "id, nome, email, senha_hash, tipo, ativo"
         ).execute()
-        count = 0
         for u in (r.data or []):
             try:
                 with local_db.get_conn() as conn:
                     row = conn.execute(
-                        "SELECT id FROM usuarios WHERE email = ?", (u["email"],)
+                        "SELECT id FROM usuarios WHERE supabase_id = ? OR email = ?",
+                        (str(u["id"]), u["email"])
                     ).fetchone()
                     if row:
                         conn.execute("""
                             UPDATE usuarios
                             SET nome=?, senha_hash=?, tipo=?, ativo=?,
                                 supabase_id=?, atualizado_em=?
-                            WHERE email=?
+                            WHERE id=?
                         """, (u["nome"], u["senha_hash"], u["tipo"],
                               1 if u["ativo"] else 0,
-                              str(u["id"]), _now(), u["email"]))
+                              str(u["id"]), _now(), row["id"]))
                     else:
                         conn.execute("""
                             INSERT INTO usuarios
@@ -69,26 +72,174 @@ def puxar_usuarios_do_supabase() -> int:
                             VALUES (?, ?, ?, ?, ?, ?)
                         """, (u["nome"], u["email"], u["senha_hash"], u["tipo"],
                               1 if u["ativo"] else 0, str(u["id"])))
-                count += 1
-            except Exception:
-                pass
-        return count
+                res["ok"] += 1
+            except Exception as e:
+                res["erros"] += 1
+                res["detalhes_erro"].append(f"pull_usuario: {e}")
+    except Exception as e:
+        res["erros"] += 1
+        res["detalhes_erro"].append(f"pull_usuarios: {e}")
+
+
+def _pull_pastas(client, res: dict):
+    """Puxa todas as pastas do Supabase e cria/atualiza localmente."""
+    try:
+        r = client.table("pastas").select("*").execute()
+        for p in (r.data or []):
+            try:
+                with local_db.get_conn() as conn:
+                    # Mapeia supabase vendedor_id → id local do usuário
+                    vend_row = conn.execute(
+                        "SELECT id FROM usuarios WHERE supabase_id = ?",
+                        (str(p["vendedor_id"]),)
+                    ).fetchone()
+                    if not vend_row:
+                        continue  # vendedor ainda não está local, será resolvido na próxima sync
+
+                    local_vend_id = vend_row["id"]
+
+                    existing = conn.execute(
+                        "SELECT id FROM pastas WHERE supabase_id = ?", (str(p["id"]),)
+                    ).fetchone()
+
+                    if existing:
+                        conn.execute("""
+                            UPDATE pastas
+                            SET nome_pasta=?, nome_cliente=?, cidade=?, kwp=?,
+                                valor_venda=?, sdr=?, id_crm=?, vendedor_id=?,
+                                vendedor_nome=?, drive_folder_id=?, mes=?, ano=?,
+                                status=?, atualizado_em=?
+                            WHERE supabase_id=?
+                        """, (p["nome_pasta"], p["nome_cliente"], p["cidade"],
+                              float(p["kwp"]), p.get("valor_venda"), p.get("sdr"),
+                              p.get("id_crm"), local_vend_id, p["vendedor_nome"],
+                              p.get("drive_folder_id"), p["mes"], p["ano"],
+                              p["status"], _now(), str(p["id"])))
+                    else:
+                        # sync_status='ok' pois já existe no Supabase — não entra na fila
+                        conn.execute("""
+                            INSERT INTO pastas
+                            (nome_pasta, nome_cliente, cidade, kwp, valor_venda, sdr,
+                             id_crm, vendedor_id, vendedor_nome, drive_folder_id,
+                             mes, ano, status, sync_status, supabase_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?)
+                        """, (p["nome_pasta"], p["nome_cliente"], p["cidade"],
+                              float(p["kwp"]), p.get("valor_venda"), p.get("sdr"),
+                              p.get("id_crm"), local_vend_id, p["vendedor_nome"],
+                              p.get("drive_folder_id"), p["mes"], p["ano"],
+                              p["status"], str(p["id"])))
+                res["ok"] += 1
+            except Exception as e:
+                res["erros"] += 1
+                res["detalhes_erro"].append(f"pull_pasta: {e}")
+    except Exception as e:
+        res["erros"] += 1
+        res["detalhes_erro"].append(f"pull_pastas: {e}")
+
+
+def _pull_documentos(client, res: dict):
+    """Puxa todos os documentos do Supabase e cria/atualiza localmente."""
+    try:
+        r = client.table("documentos").select("*").execute()
+        for d in (r.data or []):
+            try:
+                with local_db.get_conn() as conn:
+                    # Mapeia supabase pasta_id → id local da pasta
+                    pasta_row = conn.execute(
+                        "SELECT id FROM pastas WHERE supabase_id = ?", (str(d["pasta_id"]),)
+                    ).fetchone()
+                    if not pasta_row:
+                        continue
+
+                    local_pasta_id = pasta_row["id"]
+
+                    existing = conn.execute(
+                        "SELECT id FROM documentos WHERE supabase_id = ?", (str(d["id"]),)
+                    ).fetchone()
+
+                    if existing:
+                        conn.execute("""
+                            UPDATE documentos
+                            SET tipo=?, subtipo=?, nome_original=?, nome_final=?,
+                                extensao=?, drive_file_id=?
+                            WHERE supabase_id=?
+                        """, (d["tipo"], d.get("subtipo"), d["nome_original"],
+                              d["nome_final"], d["extensao"], d.get("drive_file_id"),
+                              str(d["id"])))
+                    else:
+                        # sync_status='ok' pois já existe no Supabase
+                        conn.execute("""
+                            INSERT INTO documentos
+                            (pasta_id, tipo, subtipo, nome_original, nome_final,
+                             extensao, drive_file_id, sync_status, supabase_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?)
+                        """, (local_pasta_id, d["tipo"], d.get("subtipo"),
+                              d["nome_original"], d["nome_final"], d["extensao"],
+                              d.get("drive_file_id"), str(d["id"])))
+                res["ok"] += 1
+            except Exception as e:
+                res["erros"] += 1
+                res["detalhes_erro"].append(f"pull_doc: {e}")
+    except Exception as e:
+        res["erros"] += 1
+        res["detalhes_erro"].append(f"pull_documentos: {e}")
+
+
+# ------------------------------------------------------------------
+# Funções públicas de pull
+# ------------------------------------------------------------------
+
+def puxar_usuarios_do_supabase() -> int:
+    """
+    Puxa usuários do Supabase para o banco local.
+    Usado na tela de login de PCs novos antes da primeira sync completa.
+    """
+    try:
+        client = _get_client()
+        res = {"ok": 0, "erros": 0, "detalhes_erro": []}
+        _pull_usuarios(client, res)
+        return res["ok"]
     except Exception:
         return 0
 
 
+def puxar_tudo_do_supabase() -> dict:
+    """
+    Pull completo: usuarios → pastas → documentos.
+    Chamado ao iniciar o app para ter dados frescos imediatamente.
+    """
+    resultado = {"ok": 0, "erros": 0, "detalhes_erro": []}
+    try:
+        client = _get_client()
+        _pull_usuarios(client, resultado)
+        _pull_pastas(client, resultado)
+        _pull_documentos(client, resultado)
+    except Exception as e:
+        resultado["erros"] += 1
+        resultado["detalhes_erro"].append(str(e))
+    return resultado
+
+
 # ------------------------------------------------------------------
-# Sync principal
+# Sync principal (pull + push)
 # ------------------------------------------------------------------
 
 def sincronizar_tudo() -> dict:
     """
-    Push de todos os registros locais para o Supabase.
+    Sincronização bidirecional completa:
+      1. Pull: traz dados de outros PCs do Supabase para local
+      2. Push: envia dados locais para o Supabase
     Retorna dict com: ok, erros, detalhes_erro.
     """
     client = _get_client()
     resultado = {"ok": 0, "erros": 0, "detalhes_erro": []}
 
+    # 1. Pull — garante que dados de outros PCs estão disponíveis localmente
+    _pull_usuarios(client, resultado)
+    _pull_pastas(client, resultado)
+    _pull_documentos(client, resultado)
+
+    # 2. Push — envia dados locais para o Supabase
     _sync_usuarios(client, resultado)
     _sync_metas(client, resultado)
     _sync_pastas(client, resultado)
@@ -98,7 +249,7 @@ def sincronizar_tudo() -> dict:
 
 
 # ------------------------------------------------------------------
-# Push por tabela
+# Push por tabela (local → Supabase)
 # ------------------------------------------------------------------
 
 def _sync_usuarios(client, res: dict):
@@ -134,10 +285,10 @@ def _sync_metas(client, res: dict):
     for m in metas:
         try:
             dados = {
-                "mes":        m["mes"],
-                "ano":        m["ano"],
+                "mes":         m["mes"],
+                "ano":         m["ano"],
                 "meta_vendas": m["meta_vendas"],
-                "meta_valor": float(m["meta_valor"]),
+                "meta_valor":  float(m["meta_valor"]),
             }
             sid = m.get("supabase_id")
             if sid:
@@ -157,20 +308,20 @@ def _sync_pastas(client, res: dict):
         try:
             vend = local_db.get_usuario(p["vendedor_id"])
             dados = {
-                "nome_pasta":     p["nome_pasta"],
-                "nome_cliente":   p["nome_cliente"],
-                "cidade":         p["cidade"],
-                "kwp":            float(p["kwp"]),
-                "valor_venda":    float(p["valor_venda"]) if p.get("valor_venda") else None,
-                "sdr":            p.get("sdr"),
-                "id_crm":         p.get("id_crm"),
-                "vendedor_id":    vend.get("supabase_id") if vend else None,
-                "vendedor_nome":  p["vendedor_nome"],
+                "nome_pasta":      p["nome_pasta"],
+                "nome_cliente":    p["nome_cliente"],
+                "cidade":          p["cidade"],
+                "kwp":             float(p["kwp"]),
+                "valor_venda":     float(p["valor_venda"]) if p.get("valor_venda") else None,
+                "sdr":             p.get("sdr"),
+                "id_crm":          p.get("id_crm"),
+                "vendedor_id":     vend.get("supabase_id") if vend else None,
+                "vendedor_nome":   p["vendedor_nome"],
                 "drive_folder_id": p.get("drive_folder_id"),
-                "mes":            p["mes"],
-                "ano":            p["ano"],
-                "status":         p["status"],
-                "local_id":       p["id"],
+                "mes":             p["mes"],
+                "ano":             p["ano"],
+                "status":          p["status"],
+                "local_id":        p["id"],
             }
             sid = p.get("supabase_id")
             if sid:
@@ -189,19 +340,19 @@ def _sync_documentos(client, res: dict):
     for p in local_db.listar_pastas():
         pasta_sid = p.get("supabase_id")
         if not pasta_sid:
-            continue  # pasta ainda não está no Supabase
+            continue
 
         for d in local_db.listar_documentos(p["id"]):
             try:
                 dados = {
-                    "pasta_id":     pasta_sid,
-                    "tipo":         d["tipo"],
-                    "subtipo":      d.get("subtipo"),
+                    "pasta_id":      pasta_sid,
+                    "tipo":          d["tipo"],
+                    "subtipo":       d.get("subtipo"),
                     "nome_original": d["nome_original"],
-                    "nome_final":   d["nome_final"],
-                    "extensao":     d["extensao"],
+                    "nome_final":    d["nome_final"],
+                    "extensao":      d["extensao"],
                     "drive_file_id": d.get("drive_file_id"),
-                    "local_id":     d["id"],
+                    "local_id":      d["id"],
                 }
                 sid = d.get("supabase_id")
                 if sid:
@@ -211,5 +362,6 @@ def _sync_documentos(client, res: dict):
                     if r.data:
                         local_db.set_supabase_id("documentos", d["id"], str(r.data[0]["id"]))
                 res["ok"] += 1
-            except Exception:
+            except Exception as e:
                 res["erros"] += 1
+                res["detalhes_erro"].append(str(e))

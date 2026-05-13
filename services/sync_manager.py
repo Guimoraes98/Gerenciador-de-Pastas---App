@@ -30,6 +30,8 @@ class SyncManager:
         if self._rodando:
             return
         self._rodando = True
+        # Pull imediato: traz dados de outros PCs sem esperar o loop de 5 min
+        threading.Thread(target=self._pull_inicial, daemon=True).start()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -44,6 +46,14 @@ class SyncManager:
             self._sync_drive()
             self._sync_supabase()
             time.sleep(INTERVALO_SEGUNDOS)
+
+    def _pull_inicial(self):
+        """Pull de dados remotos imediatamente após o login, sem esperar os 30s."""
+        try:
+            from services.supabase_client import puxar_tudo_do_supabase
+            puxar_tudo_do_supabase()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Sync Drive (processa sync_queue)
