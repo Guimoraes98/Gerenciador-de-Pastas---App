@@ -172,7 +172,7 @@ class UpdateDialog(ctk.CTkToplevel):
 
     def _fechar_e_atualizar(self):
         self._status_lbl.configure(
-            text="O instalador será aberto. Clique em Instalar para continuar.",
+            text="Instalando… o app será reiniciado automaticamente.",
             text_color=COLORS["success"]
         )
         self.after(1500, lambda: sys.exit(0))

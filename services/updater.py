@@ -101,14 +101,13 @@ def baixar_e_instalar(url: str, nome_arquivo: str, on_progress=None) -> bool:
     except Exception:
         return False
 
-    # Script .bat que espera o app fechar e abre o instalador visivelmente
-    # (sem /SILENT para evitar bloqueio do Windows Defender / SmartScreen)
+    # Script .bat que espera o app fechar e roda o instalador Inno silenciosamente
     bat = os.path.join(tempfile.gettempdir(), "efitec_update.bat")
     with open(bat, "w") as f:
         f.write(
             f'@echo off\n'
             f'timeout /t 6 /nobreak > nul\n'
-            f'"{dest}"\n'
+            f'"{dest}" /SILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS\n'
         )
 
     subprocess.Popen(["cmd", "/c", bat], creationflags=subprocess.CREATE_NO_WINDOW)
