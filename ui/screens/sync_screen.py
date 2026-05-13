@@ -102,6 +102,17 @@ class SyncScreen(ctk.CTkFrame):
         )
         self._btn_sync.pack(side="left")
 
+        self._btn_update = ctk.CTkButton(
+            ctrl,
+            text="🔔  Verificar Atualização",
+            height=36, corner_radius=9,
+            fg_color=COLORS["stroke"], hover_color=COLORS["card_hover"],
+            text_color=COLORS["text_muted"],
+            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            command=self._verificar_atualizacao_manual,
+        )
+        self._btn_update.pack(side="left", padx=(8, 0))
+
         ctk.CTkFrame(self, height=1, fg_color=COLORS["stroke"]).grid(
             row=0, column=0, sticky="sew", padx=20)
 
@@ -373,6 +384,32 @@ class SyncScreen(ctk.CTkFrame):
         except Exception:
             pass
         self._atualizar_status_drive()
+
+    def _verificar_atualizacao_manual(self):
+        self._btn_update.configure(text="⏳  Verificando…", state="disabled")
+
+        def _worker():
+            try:
+                from services.updater import verificar_atualizacao
+                release = verificar_atualizacao()
+            except Exception:
+                release = None
+            self.after(0, lambda: self._apos_verificar_update(release))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _apos_verificar_update(self, release):
+        self._btn_update.configure(text="🔔  Verificar Atualização", state="normal")
+        if release:
+            from ui.components.update_dialog import UpdateDialog
+            UpdateDialog(self.winfo_toplevel(), release=release)
+        else:
+            from tkinter import messagebox
+            messagebox.showinfo(
+                "Atualização",
+                "Você já está na versão mais recente.",
+                parent=self,
+            )
 
     def _sincronizar(self):
         if self._sincronizando:

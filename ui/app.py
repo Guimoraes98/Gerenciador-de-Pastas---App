@@ -208,8 +208,11 @@ class App(_AppBase):
                 release = verificar_atualizacao()
                 if release:
                     self.after(0, lambda: self._mostrar_update(release))
+                    return
             except Exception:
                 pass
+            # Sem atualização ou erro — tenta de novo em 30 minutos
+            self.after(30 * 60 * 1000, self._verificar_atualizacao)
         import threading
         threading.Thread(target=_worker, daemon=True).start()
 
