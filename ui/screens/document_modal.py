@@ -32,7 +32,6 @@ _TIPO_CURTO = {
     "Proposta Comercial":    "Proposta Com.",
     "Procuração":            "Procuração",
     "Projeto 2D":            "Projeto 2D",
-    "Nota Fiscal":           "Nota Fiscal",
     "Lista de Equipamento":  "Lista Equip.",
     "Checklist":             "Checklist",
     "Pagamento Serviço":     "Pag. Serviço",
@@ -65,7 +64,7 @@ class ModalDocumentos(ctk.CTkToplevel):
         super().__init__(master, **kwargs)
         self._pasta    = pasta
         self._on_close = on_close
-        self._fila: list[dict] = []   # [{caminho, nome_original, tipo_var, subtipo_var}]
+        self._fila: list[dict] = []   # [{caminho, nome_original, tipo_var, subtipo_var, obs_var}]
 
         self.title(f"Documentos — {pasta.get('nome_pasta', '')}")
         self.geometry(f"{self.WIDTH}x{self.HEIGHT}")
@@ -465,10 +464,9 @@ class ModalDocumentos(ctk.CTkToplevel):
         )
         tipo_menu.grid(row=0, column=1, padx=4, pady=PAD_Y)
 
-        # ---- Col 2: subtipo (frame fixo) ----------------------------
-        sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=128, height=30)
-        sub_frame.grid(row=0, column=2, padx=4, pady=PAD_Y)
-        sub_frame.grid_propagate(False)
+        # ---- Col 2: subtipo + obs (frame dinâmico) ------------------
+        sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
+        sub_frame.grid(row=0, column=2, padx=4, pady=PAD_Y, sticky="w")
 
         # ---- Col 3: preview do nome final ---------------------------
         preview_var = ctk.StringVar()
@@ -490,15 +488,27 @@ class ModalDocumentos(ctk.CTkToplevel):
             command=lambda i=idx: self._remover_da_fila(i),
         ).grid(row=0, column=4, padx=(2, 8), pady=PAD_Y)
 
-        # ---- Lógica de atualização (subtipo + preview) --------------
+        # ---- Lógica de atualização (subtipo + obs + preview) --------
         def _refresh_preview(*_):
             tipo    = item["tipo_var"].get()
             subtipo = item["subtipo_var"].get() or None
+            obs     = item["obs_var"].get().strip()
+            if subtipo and obs:
+                subtipo = f"{subtipo} - {obs}"
             nome_f  = gerar_nome_final(tipo, subtipo, ext)
-            max_c   = 28
+            max_c   = 32
             preview_var.set("→  " + (nome_f if len(nome_f) <= max_c else nome_f[:max_c - 1] + "…"))
 
-        def _update_subtipo(tipo_nome, _sf=sub_frame, _sv=item["subtipo_var"]):
+        # Trace no obs_var (adiciona apenas uma vez por renderização)
+        for _mode, _cbname in item["obs_var"].trace_info():
+            if _mode == "write":
+                try:
+                    item["obs_var"].trace_remove(_mode, _cbname)
+                except Exception:
+                    pass
+        item["obs_var"].trace_add("write", lambda *_: _refresh_preview())
+
+        def _update_subtipo(tipo_nome, _sf=sub_frame, _sv=item["subtipo_var"], _ov=item["obs_var"]):
             for w in _sf.winfo_children():
                 w.destroy()
             subs = DOCS_CONFIG.get(tipo_nome, {}).get("subtipos", [])
@@ -506,11 +516,23 @@ class ModalDocumentos(ctk.CTkToplevel):
                 _sv.set(subs[0])
                 ctk.CTkOptionMenu(
                     _sf, variable=_sv, values=subs,
-                    width=124, **_opt_kw,
+                    width=120, height=30, **_opt_kw,
                     command=lambda _: _refresh_preview(),
-                ).place(relwidth=1.0, rely=0)
+                ).pack(side="left")
+                _ov.set("")
+                ctk.CTkEntry(
+                    _sf, textvariable=_ov,
+                    width=108, height=30,
+                    placeholder_text="Obs…",
+                    fg_color=COLORS["bg"],
+                    border_color=COLORS["stroke"],
+                    text_color=COLORS["text"],
+                    placeholder_text_color=COLORS["text_dim"],
+                    font=ctk.CTkFont("Segoe UI", 11),
+                ).pack(side="left", padx=(4, 0))
             else:
                 _sv.set("")
+                _ov.set("")
             _refresh_preview()
 
         tipo_menu.configure(command=_update_subtipo)
@@ -595,6 +617,7 @@ class ModalDocumentos(ctk.CTkToplevel):
                 "nome_original": nome,
                 "tipo_var":      ctk.StringVar(value=tipo_sugerido),
                 "subtipo_var":   ctk.StringVar(value=subs[0] if subs else ""),
+                "obs_var":       ctk.StringVar(value=""),
             }
             self._fila.append(item)
 
@@ -646,6 +669,9 @@ class ModalDocumentos(ctk.CTkToplevel):
         for item in list(self._fila):
             tipo    = item["tipo_var"].get()
             subtipo = item["subtipo_var"].get() or None
+            obs     = item["obs_var"].get().strip()
+            if subtipo and obs:
+                subtipo = f"{subtipo} - {obs}"
 
             ok, _, erro = adicionar_doc_a_pasta(
                 pasta["id"], item["caminho"], tipo, subtipo, caminho_pasta

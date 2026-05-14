@@ -2,11 +2,12 @@
 #  ui/components/update_dialog.py — Dialog de atualização
 # =============================================================
 
+import os
 import threading
 import sys
 import customtkinter as ctk
 
-from config import COLORS, APP_VERSION
+from config import COLORS, APP_VERSION, ASSETS_DIR
 
 
 class UpdateDialog(ctk.CTkToplevel):
@@ -26,6 +27,13 @@ class UpdateDialog(ctk.CTkToplevel):
         self.resizable(False, False)
         self.configure(fg_color=COLORS["bg"])
         self.grab_set()
+
+        try:
+            _icon = os.path.join(ASSETS_DIR, "icon.ico")
+            if os.path.exists(_icon):
+                self.after(100, lambda: self.iconbitmap(_icon))
+        except Exception:
+            pass
 
         self.update_idletasks()
         px = master.winfo_rootx() + (master.winfo_width()  - 440) // 2
