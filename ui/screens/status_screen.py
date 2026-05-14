@@ -204,7 +204,7 @@ class StatusScreen(ctk.CTkFrame):
         todos      = list(DOCS_CONFIG.keys())
         faltando   = [t for t in todos if t not in presentes]
 
-        CHIPS_POR_LINHA = 6
+        CHIPS_POR_LINHA = 4
 
         chips_frame = ctk.CTkFrame(card, fg_color="transparent")
         chips_frame.grid(row=1, column=1, sticky="ew", pady=(0, 2))
