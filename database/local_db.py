@@ -430,6 +430,14 @@ def calcular_status_pasta(pasta_id: int) -> dict:
     }
 
 
+def recalcular_status_todas_pastas():
+    """Recalcula o status de todas as pastas com base em DOCS_CONFIG atual."""
+    with get_conn() as conn:
+        ids = [r[0] for r in conn.execute("SELECT id FROM pastas").fetchall()]
+    for pasta_id in ids:
+        calcular_status_pasta(pasta_id)
+
+
 # ------------------------------------------------------------------
 # Metas
 # ------------------------------------------------------------------

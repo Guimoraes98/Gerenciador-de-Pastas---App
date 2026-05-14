@@ -7,7 +7,7 @@ import re
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
-from config import COLORS, DOCS_CONFIG
+from config import ASSETS_DIR, COLORS, DOCS_CONFIG
 from database import local_db
 from services.document_service import (
     adicionar_doc_a_pasta,
@@ -86,6 +86,10 @@ class ModalDocumentos(ctk.CTkToplevel):
         self._build_footer()   # row 4
 
         self.protocol("WM_DELETE_WINDOW", self._fechar)
+
+        _icon = os.path.join(ASSETS_DIR, "icon.ico")
+        if os.path.exists(_icon):
+            self.after(200, lambda: self.iconbitmap(_icon))
 
     # ------------------------------------------------------------------
     def _centralizar(self, master):
@@ -415,7 +419,7 @@ class ModalDocumentos(ctk.CTkToplevel):
         from services.document_service import gerar_nome_final
 
         ROW_H = 54
-        PAD_Y = (ROW_H - 30) // 2   # centraliza widgets de height=30
+        PAD_Y = (ROW_H - 30) // 2
 
         row_frame = ctk.CTkFrame(
             self._scroll_fila,
@@ -427,8 +431,8 @@ class ModalDocumentos(ctk.CTkToplevel):
         )
         row_frame.grid(row=idx, column=0, sticky="ew", pady=3)
         row_frame.grid_propagate(False)
-        # col 0: nome original | col 1: tipo | col 2: subtipo | col 3: preview | col 4: remover
-        row_frame.grid_columnconfigure(3, weight=1)
+        # col 0: nome | col 1: tipo | col 2: subtipo | col 3: obs | col 4: preview | col 5: remover
+        row_frame.grid_columnconfigure(4, weight=1)
 
         ext = os.path.splitext(item["nome_original"])[1].lower() or ".pdf"
 
@@ -464,12 +468,25 @@ class ModalDocumentos(ctk.CTkToplevel):
         )
         tipo_menu.grid(row=0, column=1, padx=4, pady=PAD_Y)
 
-        # ---- Col 2: subtipo + obs (frame fixo, mais largo para caber os dois) ----
-        sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=235, height=30)
+        # ---- Col 2: subtipo (frame fixo; OptionMenu criado dinamicamente dentro) ----
+        sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=128, height=30)
         sub_frame.grid(row=0, column=2, padx=4, pady=PAD_Y)
         sub_frame.grid_propagate(False)
 
-        # ---- Col 3: preview do nome final ---------------------------
+        # ---- Col 3: obs (aparece apenas para tipos com subtipos) ----
+        obs_entry = ctk.CTkEntry(
+            row_frame, textvariable=item["obs_var"],
+            width=100, height=30,
+            placeholder_text="Obs…",
+            fg_color=COLORS["bg"],
+            border_color=COLORS["stroke"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont("Segoe UI", 11),
+        )
+        obs_entry.grid(row=0, column=3, padx=4, pady=PAD_Y)
+        obs_entry.grid_remove()
+
+        # ---- Col 4: preview do nome final ---------------------------
         preview_var = ctk.StringVar()
         ctk.CTkLabel(
             row_frame,
@@ -477,9 +494,9 @@ class ModalDocumentos(ctk.CTkToplevel):
             font=ctk.CTkFont("Segoe UI", 10),
             text_color=COLORS["accent2"],
             anchor="w",
-        ).grid(row=0, column=3, padx=(4, 4), pady=PAD_Y, sticky="ew")
+        ).grid(row=0, column=4, padx=(4, 4), pady=PAD_Y, sticky="ew")
 
-        # ---- Col 4: remover -----------------------------------------
+        # ---- Col 5: remover -----------------------------------------
         ctk.CTkButton(
             row_frame,
             text="✕", width=30, height=30, corner_radius=8,
@@ -487,7 +504,7 @@ class ModalDocumentos(ctk.CTkToplevel):
             text_color=COLORS["text_muted"],
             font=ctk.CTkFont("Segoe UI", 12, "bold"),
             command=lambda i=idx: self._remover_da_fila(i),
-        ).grid(row=0, column=4, padx=(2, 8), pady=PAD_Y)
+        ).grid(row=0, column=5, padx=(2, 8), pady=PAD_Y)
 
         # ---- Lógica de atualização (subtipo + obs + preview) --------
         def _refresh_preview(*_):
@@ -500,7 +517,6 @@ class ModalDocumentos(ctk.CTkToplevel):
             max_c   = 32
             preview_var.set("→  " + (nome_f if len(nome_f) <= max_c else nome_f[:max_c - 1] + "…"))
 
-        # Trace no obs_var (adiciona apenas uma vez por renderização)
         for _mode, _cbname in item["obs_var"].trace_info():
             if _mode == "write":
                 try:
@@ -509,7 +525,8 @@ class ModalDocumentos(ctk.CTkToplevel):
                     pass
         item["obs_var"].trace_add("write", lambda *_: _refresh_preview())
 
-        def _update_subtipo(tipo_nome, _sf=sub_frame, _sv=item["subtipo_var"], _ov=item["obs_var"]):
+        def _update_subtipo(tipo_nome, _sf=sub_frame, _oe=obs_entry,
+                            _sv=item["subtipo_var"], _ov=item["obs_var"]):
             for w in _sf.winfo_children():
                 w.destroy()
             subs = DOCS_CONFIG.get(tipo_nome, {}).get("subtipos", [])
@@ -517,26 +534,19 @@ class ModalDocumentos(ctk.CTkToplevel):
                 _sv.set(subs[0])
                 ctk.CTkOptionMenu(
                     _sf, variable=_sv, values=subs,
-                    width=118, **_opt_kw,  # _opt_kw já tem height=30
+                    width=124, **_opt_kw,
                     command=lambda _: _refresh_preview(),
-                ).place(x=0, y=0, height=30)
+                ).grid(row=0, column=0)
                 _ov.set("")
-                ctk.CTkEntry(
-                    _sf, textvariable=_ov,
-                    width=108, height=30,
-                    placeholder_text="Obs…",
-                    fg_color=COLORS["bg"],
-                    border_color=COLORS["stroke"],
-                    text_color=COLORS["text"],
-                    font=ctk.CTkFont("Segoe UI", 11),
-                ).place(x=122, y=0, height=30)
+                _oe.grid()
             else:
                 _sv.set("")
                 _ov.set("")
+                _oe.grid_remove()
             _refresh_preview()
 
         tipo_menu.configure(command=_update_subtipo)
-        _update_subtipo(item["tipo_var"].get())   # inicializa
+        _update_subtipo(item["tipo_var"].get())
 
     # ------------------------------------------------------------------
     # Footer

@@ -54,6 +54,11 @@ class SyncManager:
             puxar_tudo_do_supabase()
         except Exception:
             pass
+        try:
+            from database.local_db import recalcular_status_todas_pastas
+            recalcular_status_todas_pastas()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Sync Drive (processa sync_queue)

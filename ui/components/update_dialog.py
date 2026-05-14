@@ -35,12 +35,9 @@ class UpdateDialog(ctk.CTkToplevel):
 
         self._build()
 
-        try:
-            _icon = os.path.join(ASSETS_DIR, "icon.ico")
-            if os.path.exists(_icon):
-                self.iconbitmap(_icon)
-        except Exception:
-            pass
+        _icon = os.path.join(ASSETS_DIR, "icon.ico")
+        if os.path.exists(_icon):
+            self.after(200, lambda: self.iconbitmap(_icon))
 
     # ------------------------------------------------------------------
 
