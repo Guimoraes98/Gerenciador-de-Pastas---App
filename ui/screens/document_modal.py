@@ -464,9 +464,10 @@ class ModalDocumentos(ctk.CTkToplevel):
         )
         tipo_menu.grid(row=0, column=1, padx=4, pady=PAD_Y)
 
-        # ---- Col 2: subtipo + obs (frame dinâmico) ------------------
-        sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
-        sub_frame.grid(row=0, column=2, padx=4, pady=PAD_Y, sticky="w")
+        # ---- Col 2: subtipo + obs (frame fixo, mais largo para caber os dois) ----
+        sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=235, height=30)
+        sub_frame.grid(row=0, column=2, padx=4, pady=PAD_Y)
+        sub_frame.grid_propagate(False)
 
         # ---- Col 3: preview do nome final ---------------------------
         preview_var = ctk.StringVar()
@@ -516,9 +517,9 @@ class ModalDocumentos(ctk.CTkToplevel):
                 _sv.set(subs[0])
                 ctk.CTkOptionMenu(
                     _sf, variable=_sv, values=subs,
-                    width=120, height=30, **_opt_kw,
+                    width=118, **_opt_kw,  # _opt_kw já tem height=30
                     command=lambda _: _refresh_preview(),
-                ).pack(side="left")
+                ).place(x=0, y=0, height=30)
                 _ov.set("")
                 ctk.CTkEntry(
                     _sf, textvariable=_ov,
@@ -527,9 +528,8 @@ class ModalDocumentos(ctk.CTkToplevel):
                     fg_color=COLORS["bg"],
                     border_color=COLORS["stroke"],
                     text_color=COLORS["text"],
-                    placeholder_text_color=COLORS["text_dim"],
                     font=ctk.CTkFont("Segoe UI", 11),
-                ).pack(side="left", padx=(4, 0))
+                ).place(x=122, y=0, height=30)
             else:
                 _sv.set("")
                 _ov.set("")

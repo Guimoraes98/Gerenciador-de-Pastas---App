@@ -28,19 +28,19 @@ class UpdateDialog(ctk.CTkToplevel):
         self.configure(fg_color=COLORS["bg"])
         self.grab_set()
 
-        try:
-            _icon = os.path.join(ASSETS_DIR, "icon.ico")
-            if os.path.exists(_icon):
-                self.after(100, lambda: self.iconbitmap(_icon))
-        except Exception:
-            pass
-
         self.update_idletasks()
         px = master.winfo_rootx() + (master.winfo_width()  - 440) // 2
         py = master.winfo_rooty() + (master.winfo_height() - 360) // 2
         self.geometry(f"440x360+{px}+{py}")
 
         self._build()
+
+        try:
+            _icon = os.path.join(ASSETS_DIR, "icon.ico")
+            if os.path.exists(_icon):
+                self.iconbitmap(_icon)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
 
