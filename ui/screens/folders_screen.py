@@ -163,6 +163,10 @@ class FoldersScreen(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _carregar_pastas(self):
+        try:
+            local_db.recalcular_status_todas_pastas()
+        except Exception:
+            pass
         mes = MESES_PT.index(self._mes_nome_var.get()) + 1
         ano = int(self._ano_str_var.get())
         self._ano_var.set(ano)
@@ -198,6 +202,7 @@ class FoldersScreen(ctk.CTkFrame):
                 pasta=pasta,
                 on_delete=self._excluir_pasta,
                 on_refresh=self._carregar_pastas,
+                on_rename=self._abrir_editor,
             )
             card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
 
@@ -231,8 +236,17 @@ class FoldersScreen(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _excluir_pasta(self, pasta_id: int):
-        local_db.excluir_pasta(pasta_id)
+        supabase_id = local_db.excluir_pasta(pasta_id)
         self._carregar_pastas()
+        if supabase_id:
+            import threading
+            def _remover_remoto():
+                from services.supabase_client import excluir_pasta_remota
+                excluir_pasta_remota(supabase_id)
+            threading.Thread(target=_remover_remoto, daemon=True).start()
+
+    def _abrir_editor(self, pasta: dict):
+        ModalEditarPasta(self, pasta=pasta, on_success=self._carregar_pastas)
 
     def _abrir_modal_nova_pasta(self):
         ModalNovaPasta(self, usuario=self._usuario, on_success=self._apos_criar_pasta)
@@ -525,3 +539,201 @@ class ModalNovaPasta(ctk.CTkToplevel):
 
         self.destroy()
         self._on_success(pasta_id, resultado)
+
+
+# ------------------------------------------------------------------
+# Modal — Editar Pasta
+# ------------------------------------------------------------------
+
+class ModalEditarPasta(ctk.CTkToplevel):
+    """Modal para editar dados de uma pasta já existente (não move o diretório)."""
+
+    def __init__(self, master, pasta: dict, on_success, **kwargs):
+        super().__init__(master, **kwargs)
+        self._pasta      = pasta
+        self._on_success = on_success
+
+        self.title("Editar Pasta")
+        self.geometry("480x560")
+        self.resizable(False, False)
+        self.configure(fg_color=COLORS["bg"])
+        self.grab_set()
+
+        self.update_idletasks()
+        px = master.winfo_rootx() + (master.winfo_width()  - 480) // 2
+        py = master.winfo_rooty() + (master.winfo_height() - 560) // 2
+        self.geometry(f"480x560+{px}+{py}")
+
+        self._build()
+
+        try:
+            from config import ASSETS_DIR
+            import os as _os
+            _ico = _os.path.join(ASSETS_DIR, "icon.ico")
+            if _os.path.exists(_ico):
+                self.after(200, lambda: self.iconbitmap(_ico))
+        except Exception:
+            pass
+
+    def _build(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        outer = ctk.CTkFrame(self, fg_color="transparent")
+        outer.grid(row=0, column=0, sticky="nsew", padx=28, pady=24)
+        outer.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            outer,
+            text="Editar Pasta",
+            font=ctk.CTkFont("Segoe UI", 20, "bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            outer,
+            text="Altere os dados da pasta. O diretório no disco não será renomeado.",
+            font=ctk.CTkFont("Segoe UI", 12),
+            text_color=COLORS["text_muted"],
+            anchor="w",
+            wraplength=420,
+        ).grid(row=1, column=0, sticky="w", pady=(2, 16))
+
+        form = ctk.CTkFrame(outer, fg_color="transparent")
+        form.grid(row=2, column=0, sticky="ew")
+        form.grid_columnconfigure(0, weight=1)
+
+        _entry_kw = dict(
+            height=40, corner_radius=9,
+            border_color=COLORS["stroke"],
+            fg_color=COLORS["card"],
+            text_color=COLORS["text"],
+            placeholder_text_color=COLORS["text_dim"],
+            font=ctk.CTkFont("Segoe UI", 13),
+        )
+
+        def _lbl(row, texto, opt=False):
+            f = ctk.CTkFrame(form, fg_color="transparent")
+            f.grid(row=row * 2, column=0, sticky="w", pady=(10, 2))
+            ctk.CTkLabel(f, text=texto,
+                         font=ctk.CTkFont("Segoe UI", 12, "bold"),
+                         text_color=COLORS["text_muted"]).pack(side="left")
+            if opt:
+                ctk.CTkLabel(f, text="  (opcional)",
+                             font=ctk.CTkFont("Segoe UI", 10),
+                             text_color=COLORS["text_dim"]).pack(side="left")
+
+        def _inp(row, val=""):
+            e = ctk.CTkEntry(form, **_entry_kw)
+            e.grid(row=row * 2 + 1, column=0, sticky="ew")
+            if val:
+                e.insert(0, str(val))
+            return e
+
+        _lbl(0, "Nome do Cliente")
+        self._nome   = _inp(0, self._pasta.get("nome_cliente", ""))
+
+        _lbl(1, "Cidade")
+        self._cidade = _inp(1, self._pasta.get("cidade", ""))
+
+        _lbl(2, "KWp")
+        self._kwp    = _inp(2, self._pasta.get("kwp", ""))
+
+        _lbl(3, "Valor da Venda (R$)", opt=True)
+        self._valor  = _inp(3, self._pasta.get("valor_venda") or "")
+
+        _lbl(4, "SDR Responsável", opt=True)
+        self._sdr    = _inp(4, self._pasta.get("sdr") or "")
+
+        _lbl(5, "ID CRM", opt=True)
+        self._id_crm = _inp(5, self._pasta.get("id_crm") or "")
+
+        self._erro_lbl = ctk.CTkLabel(
+            outer, text="",
+            font=ctk.CTkFont("Segoe UI", 12),
+            text_color=COLORS["danger"],
+            anchor="w", wraplength=420,
+        )
+        self._erro_lbl.grid(row=3, column=0, sticky="w", pady=(8, 0))
+
+        btns = ctk.CTkFrame(outer, fg_color="transparent")
+        btns.grid(row=4, column=0, sticky="ew", pady=(16, 0))
+        btns.grid_columnconfigure((0, 1), weight=1)
+
+        ctk.CTkButton(
+            btns, text="Cancelar", height=42, corner_radius=10,
+            fg_color=COLORS["stroke"], hover_color=COLORS["card_hover"],
+            text_color=COLORS["text_muted"],
+            font=ctk.CTkFont("Segoe UI", 13),
+            command=self.destroy,
+        ).grid(row=0, column=0, padx=(0, 6), sticky="ew")
+
+        self._btn_salvar = ctk.CTkButton(
+            btns, text="Salvar", height=42, corner_radius=10,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            command=self._confirmar,
+        )
+        self._btn_salvar.grid(row=0, column=1, padx=(6, 0), sticky="ew")
+
+        self.bind("<Return>", lambda _: self._confirmar())
+
+    def _confirmar(self):
+        nome      = self._nome.get().strip()
+        cidade    = self._cidade.get().strip()
+        kwp_str   = self._kwp.get().strip().replace(",", ".")
+        valor_str = self._valor.get().strip().replace(",", ".")
+        sdr       = self._sdr.get().strip() or None
+        id_crm    = self._id_crm.get().strip() or None
+
+        if not nome:
+            self._erro_lbl.configure(text="Nome do cliente é obrigatório.")
+            return
+        if not cidade:
+            self._erro_lbl.configure(text="Cidade é obrigatória.")
+            return
+        try:
+            kwp = float(kwp_str)
+            if kwp <= 0:
+                raise ValueError
+        except ValueError:
+            self._erro_lbl.configure(text="KWp deve ser um número positivo (ex: 7.35).")
+            return
+
+        valor = None
+        if valor_str:
+            try:
+                valor = float(valor_str)
+            except ValueError:
+                self._erro_lbl.configure(text="Valor da venda inválido (ex: 28000.00).")
+                return
+
+        from services.folder_service import gerar_nome_pasta
+        novo_nome_pasta = gerar_nome_pasta(
+            nome, cidade, kwp, self._pasta.get("vendedor_nome", "")
+        )
+
+        campos = {
+            "nome_cliente": nome,
+            "cidade":       cidade,
+            "kwp":          kwp,
+            "valor_venda":  valor,
+            "sdr":          sdr,
+            "id_crm":       id_crm,
+            "nome_pasta":   novo_nome_pasta,
+        }
+
+        self._btn_salvar.configure(state="disabled", text="Salvando…")
+        self.update()
+
+        local_db.atualizar_pasta(self._pasta["id"], campos)
+
+        try:
+            from services.sync_manager import sync_manager
+            sync_manager.push_supabase_agora()
+        except Exception:
+            pass
+
+        self.destroy()
+        self._on_success()

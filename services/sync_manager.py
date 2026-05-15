@@ -26,9 +26,10 @@ class SyncManager:
     # Ciclo de vida
     # ------------------------------------------------------------------
 
-    def iniciar(self):
+    def iniciar(self, on_pull_done=None):
         if self._rodando:
             return
+        self._on_pull_done = on_pull_done
         self._rodando = True
         # Pull imediato: traz dados de outros PCs sem esperar o loop de 5 min
         threading.Thread(target=self._pull_inicial, daemon=True).start()
@@ -59,6 +60,12 @@ class SyncManager:
             recalcular_status_todas_pastas()
         except Exception:
             pass
+        cb = getattr(self, "_on_pull_done", None)
+        if cb:
+            try:
+                cb()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Sync Drive (processa sync_queue)

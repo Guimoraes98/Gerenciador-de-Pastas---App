@@ -82,24 +82,26 @@ def _pull_usuarios(client, res: dict):
 
 
 def _pull_pastas(client, res: dict):
-    """Puxa todas as pastas do Supabase e cria/atualiza localmente."""
+    """Puxa todas as pastas do Supabase e cria/atualiza/remove localmente."""
     try:
         r = client.table("pastas").select("*").execute()
+        supabase_ids: set[str] = set()
         for p in (r.data or []):
             try:
+                pid_str = str(p["id"])
+                supabase_ids.add(pid_str)
                 with local_db.get_conn() as conn:
-                    # Mapeia supabase vendedor_id → id local do usuário
                     vend_row = conn.execute(
                         "SELECT id FROM usuarios WHERE supabase_id = ?",
                         (str(p["vendedor_id"]),)
                     ).fetchone()
                     if not vend_row:
-                        continue  # vendedor ainda não está local, será resolvido na próxima sync
+                        continue
 
                     local_vend_id = vend_row["id"]
 
                     existing = conn.execute(
-                        "SELECT id FROM pastas WHERE supabase_id = ?", (str(p["id"]),)
+                        "SELECT id FROM pastas WHERE supabase_id = ?", (pid_str,)
                     ).fetchone()
 
                     if existing:
@@ -108,15 +110,14 @@ def _pull_pastas(client, res: dict):
                             SET nome_pasta=?, nome_cliente=?, cidade=?, kwp=?,
                                 valor_venda=?, sdr=?, id_crm=?, vendedor_id=?,
                                 vendedor_nome=?, drive_folder_id=?, mes=?, ano=?,
-                                status=?, atualizado_em=?
+                                atualizado_em=?
                             WHERE supabase_id=?
                         """, (p["nome_pasta"], p["nome_cliente"], p["cidade"],
                               float(p["kwp"]), p.get("valor_venda"), p.get("sdr"),
                               p.get("id_crm"), local_vend_id, p["vendedor_nome"],
                               p.get("drive_folder_id"), p["mes"], p["ano"],
-                              p["status"], _now(), str(p["id"])))
+                              _now(), pid_str))
                     else:
-                        # sync_status='ok' pois já existe no Supabase — não entra na fila
                         conn.execute("""
                             INSERT INTO pastas
                             (nome_pasta, nome_cliente, cidade, kwp, valor_venda, sdr,
@@ -127,11 +128,24 @@ def _pull_pastas(client, res: dict):
                               float(p["kwp"]), p.get("valor_venda"), p.get("sdr"),
                               p.get("id_crm"), local_vend_id, p["vendedor_nome"],
                               p.get("drive_folder_id"), p["mes"], p["ano"],
-                              p["status"], str(p["id"])))
+                              p.get("status", "incompleta"), pid_str))
                 res["ok"] += 1
             except Exception as e:
                 res["erros"] += 1
                 res["detalhes_erro"].append(f"pull_pasta: {e}")
+
+        # Sync de exclusões: remove localmente pastas que sumiram do Supabase
+        if supabase_ids:
+            try:
+                placeholders = ",".join("?" * len(supabase_ids))
+                with local_db.get_conn() as conn:
+                    conn.execute(
+                        f"DELETE FROM pastas WHERE supabase_id IS NOT NULL "
+                        f"AND supabase_id NOT IN ({placeholders})",
+                        list(supabase_ids),
+                    )
+            except Exception:
+                pass
     except Exception as e:
         res["erros"] += 1
         res["detalhes_erro"].append(f"pull_pastas: {e}")
@@ -203,9 +217,19 @@ def puxar_usuarios_do_supabase() -> int:
         return 0
 
 
+def excluir_pasta_remota(supabase_id: str):
+    """Remove pasta e documentos do Supabase. Chamado em background após exclusão local."""
+    try:
+        client = _get_client()
+        client.table("documentos").delete().eq("pasta_id", supabase_id).execute()
+        client.table("pastas").delete().eq("id", supabase_id).execute()
+    except Exception:
+        pass
+
+
 def puxar_tudo_do_supabase() -> dict:
     """
-    Pull completo: usuarios → pastas → documentos.
+    Pull completo: usuarios → pastas → documentos → recalcula status.
     Chamado ao iniciar o app para ter dados frescos imediatamente.
     """
     resultado = {"ok": 0, "erros": 0, "detalhes_erro": []}
@@ -217,6 +241,11 @@ def puxar_tudo_do_supabase() -> dict:
     except Exception as e:
         resultado["erros"] += 1
         resultado["detalhes_erro"].append(str(e))
+    try:
+        from database.local_db import recalcular_status_todas_pastas
+        recalcular_status_todas_pastas()
+    except Exception:
+        pass
     return resultado
 
 

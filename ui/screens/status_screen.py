@@ -109,6 +109,10 @@ class StatusScreen(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _carregar(self):
+        try:
+            local_db.recalcular_status_todas_pastas()
+        except Exception:
+            pass
         mes = MESES_PT.index(self._mes_nome_var.get()) + 1
         ano = int(self._ano_str_var.get())
 

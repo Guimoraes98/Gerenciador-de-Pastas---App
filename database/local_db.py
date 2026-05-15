@@ -302,19 +302,37 @@ def atualizar_drive_pasta(pasta_id: int, drive_folder_id: str):
         """, (drive_folder_id, _now(), pasta_id))
 
 
-def excluir_pasta(pasta_id: int):
+def excluir_pasta(pasta_id: int) -> str | None:
+    """Remove pasta (e documentos via CASCADE). Retorna supabase_id para exclusão remota."""
     with get_conn() as conn:
-        # Salva drive_folder_id antes de deletar para o sync remover do Drive
         row = conn.execute(
-            "SELECT drive_folder_id FROM pastas WHERE id = ?", (pasta_id,)
+            "SELECT drive_folder_id, supabase_id FROM pastas WHERE id = ?", (pasta_id,)
         ).fetchone()
-        drive_id = row["drive_folder_id"] if row else None
+        drive_id    = row["drive_folder_id"] if row else None
+        supabase_id = row["supabase_id"]     if row else None
         if drive_id:
             conn.execute("""
                 INSERT INTO sync_queue (tipo, ref_id, operacao, ultimo_erro)
                 VALUES ('pasta', ?, 'delete', ?)
             """, (pasta_id, drive_id))
         conn.execute("DELETE FROM pastas WHERE id = ?", (pasta_id,))
+    return supabase_id
+
+
+def atualizar_pasta(pasta_id: int, campos: dict):
+    """Atualiza campos editáveis de uma pasta sem mover o diretório no disco."""
+    _permitidos = {"nome_pasta", "nome_cliente", "cidade", "kwp",
+                   "valor_venda", "sdr", "id_crm"}
+    campos = {k: v for k, v in campos.items() if k in _permitidos}
+    if not campos:
+        return
+    sets = ", ".join(f"{k} = ?" for k in campos)
+    vals = list(campos.values()) + [_now(), pasta_id]
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE pastas SET {sets}, atualizado_em = ?, sync_status = 'pendente' WHERE id = ?",
+            vals,
+        )
 
 
 # ------------------------------------------------------------------

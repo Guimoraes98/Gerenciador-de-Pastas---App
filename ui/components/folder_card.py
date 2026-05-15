@@ -18,7 +18,7 @@ class FolderCard(ctk.CTkFrame):
         on_refresh()        — callback para recarregar a grade após ações
     """
 
-    def __init__(self, master, pasta: dict, on_delete, on_refresh, **kwargs):
+    def __init__(self, master, pasta: dict, on_delete, on_refresh, on_rename=None, **kwargs):
         super().__init__(
             master,
             fg_color=COLORS["card"],
@@ -27,9 +27,10 @@ class FolderCard(ctk.CTkFrame):
             border_color=COLORS["stroke"],
             **kwargs,
         )
-        self._pasta     = pasta
-        self._on_delete = on_delete
+        self._pasta      = pasta
+        self._on_delete  = on_delete
         self._on_refresh = on_refresh
+        self._on_rename  = on_rename
 
         self._build()
         self._bind_hover()
@@ -124,8 +125,8 @@ class FolderCard(ctk.CTkFrame):
             command=self._abrir_documentos,
         ).grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
 
-        # Linha 1: ações secundárias
-        btns.grid_columnconfigure((0, 1, 2), weight=1)
+        # Linha 1: ações secundárias (4 colunas)
+        btns.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         id_crm = pasta.get("id_crm")
 
@@ -139,7 +140,7 @@ class FolderCard(ctk.CTkFrame):
             text_color=COLORS["text_muted"],
             font=ctk.CTkFont("Segoe UI", 11),
             command=self._abrir_local,
-        ).grid(row=1, column=0, padx=(0, 3), sticky="ew")
+        ).grid(row=1, column=0, padx=(0, 2), sticky="ew")
 
         ctk.CTkButton(
             btns,
@@ -152,7 +153,19 @@ class FolderCard(ctk.CTkFrame):
             font=ctk.CTkFont("Segoe UI", 11),
             state="normal" if id_crm else "disabled",
             command=lambda: self._abrir_crm(id_crm),
-        ).grid(row=1, column=1, padx=3, sticky="ew")
+        ).grid(row=1, column=1, padx=2, sticky="ew")
+
+        ctk.CTkButton(
+            btns,
+            text="✏️",
+            height=30,
+            corner_radius=8,
+            fg_color=COLORS["stroke"],
+            hover_color=COLORS["accent2"],
+            text_color=COLORS["text_muted"],
+            font=ctk.CTkFont("Segoe UI", 13),
+            command=self._abrir_editor,
+        ).grid(row=1, column=2, padx=2, sticky="ew")
 
         ctk.CTkButton(
             btns,
@@ -164,7 +177,7 @@ class FolderCard(ctk.CTkFrame):
             text_color=COLORS["text_muted"],
             font=ctk.CTkFont("Segoe UI", 13),
             command=self._confirmar_exclusao,
-        ).grid(row=1, column=2, padx=(3, 0), sticky="ew")
+        ).grid(row=1, column=3, padx=(2, 0), sticky="ew")
 
     # ------------------------------------------------------------------
     def _bind_hover(self):
@@ -193,6 +206,10 @@ class FolderCard(ctk.CTkFrame):
     def _abrir_crm(self, id_crm):
         if id_crm:
             webbrowser.open(f"https://efitecsolar.groner.app/negocio/{id_crm}/contato")
+
+    def _abrir_editor(self):
+        if self._on_rename:
+            self._on_rename(self._pasta)
 
     def _confirmar_exclusao(self):
         from tkinter import messagebox

@@ -162,7 +162,7 @@ class App(_AppBase):
 
         # Inicia sync automático em background
         from services.sync_manager import sync_manager
-        sync_manager.iniciar()
+        sync_manager.iniciar(on_pull_done=lambda: self.after(0, self._refresh_tela_atual))
 
         # Verifica atualizações 8 segundos após o login
         self.after(8000, self._verificar_atualizacao)
@@ -170,8 +170,14 @@ class App(_AppBase):
         # Navega para a Home
         self._navegar("home")
 
+    def _refresh_tela_atual(self):
+        """Recarrega a tela atual após pull inicial completar."""
+        tela = getattr(self, "_tela_atual_nome", "home")
+        self._navegar(tela)
+
     def _navegar(self, tela: str):
         """Troca a tela de conteúdo."""
+        self._tela_atual_nome = tela
         # Limpa conteúdo anterior
         for widget in self._content_frame.winfo_children():
             widget.destroy()
