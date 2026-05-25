@@ -280,7 +280,7 @@ class ModalNovaPasta(ctk.CTkToplevel):
         self._on_success = on_success
 
         self.title("Nova Pasta de Cliente")
-        self.geometry("480x700")
+        self.geometry("480x780")
         self.resizable(False, False)
         self.configure(fg_color=COLORS["bg"])
         self.grab_set()  # modal
@@ -288,8 +288,8 @@ class ModalNovaPasta(ctk.CTkToplevel):
         # Centraliza sobre a janela pai
         self.update_idletasks()
         px = master.winfo_rootx() + (master.winfo_width()  - 480) // 2
-        py = master.winfo_rooty() + (master.winfo_height() - 700) // 2
-        self.geometry(f"480x700+{px}+{py}")
+        py = master.winfo_rooty() + (master.winfo_height() - 780) // 2
+        self.geometry(f"480x780+{px}+{py}")
 
         self._build()
 
@@ -356,6 +356,7 @@ class ModalNovaPasta(ctk.CTkToplevel):
                 **kw,
             )
             e.grid(row=row * 2 + 1, column=0, sticky="ew")
+            e.bind("<Return>", lambda _: self._confirmar())
             return e
 
         _label(form, 0, "Nome do Cliente")
@@ -403,6 +404,7 @@ class ModalNovaPasta(ctk.CTkToplevel):
         )
         self._ano_entry.insert(0, str(_agora.year))
         self._ano_entry.grid(row=0, column=1, sticky="ew")
+        self._ano_entry.bind("<Return>", lambda _: self._confirmar())
 
         _label(form, 4, "Valor da Venda (R$)", obrigatorio=False)
         self._valor   = _entry(form, 4, "Ex: 28000.00")
@@ -529,7 +531,12 @@ class ModalNovaPasta(ctk.CTkToplevel):
             "vendedor_nome": self._usuario["nome"],
         }
 
-        ok, pasta_id, resultado = nova_pasta(dados)
+        try:
+            ok, pasta_id, resultado = nova_pasta(dados)
+        except Exception as e:
+            self._btn_criar.configure(state="normal", text="Criar Pasta")
+            self._set_erro(f"Erro inesperado: {e}")
+            return
 
         self._btn_criar.configure(state="normal", text="Criar Pasta")
 
