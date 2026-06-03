@@ -117,8 +117,9 @@ class SyncManager:
         try:
             from services.supabase_client import sincronizar_tudo
             res_supa = sincronizar_tudo()
-        except Exception:
-            pass
+        except Exception as e:
+            res_supa["erros"] += 1
+            res_supa["detalhes_erro"] = [str(e)]
 
         return res_drive, res_supa
 

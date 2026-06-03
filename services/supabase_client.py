@@ -260,8 +260,13 @@ def sincronizar_tudo() -> dict:
       2. Push: envia dados locais para o Supabase
     Retorna dict com: ok, erros, detalhes_erro.
     """
-    client = _get_client()
     resultado = {"ok": 0, "erros": 0, "detalhes_erro": []}
+    try:
+        client = _get_client()
+    except Exception as e:
+        resultado["erros"] += 1
+        resultado["detalhes_erro"].append(f"Falha ao conectar Supabase: {e}")
+        return resultado
 
     # 1. Pull — garante que dados de outros PCs estão disponíveis localmente
     _pull_usuarios(client, resultado)
