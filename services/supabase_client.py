@@ -268,16 +268,16 @@ def sincronizar_tudo() -> dict:
         resultado["detalhes_erro"].append(f"Falha ao conectar Supabase: {e}")
         return resultado
 
-    # 1. Pull — garante que dados de outros PCs estão disponíveis localmente
-    _pull_usuarios(client, resultado)
-    _pull_pastas(client, resultado)
-    _pull_documentos(client, resultado)
-
-    # 2. Push — envia dados locais para o Supabase
+    # 1. Push — envia dados locais primeiro para não perder mudanças locais
     _sync_usuarios(client, resultado)
     _sync_metas(client, resultado)
     _sync_pastas(client, resultado)
     _sync_documentos(client, resultado)
+
+    # 2. Pull — traz dados de outros PCs após garantir que local foi salvo
+    _pull_usuarios(client, resultado)
+    _pull_pastas(client, resultado)
+    _pull_documentos(client, resultado)
 
     return resultado
 
