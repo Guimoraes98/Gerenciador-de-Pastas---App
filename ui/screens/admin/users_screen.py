@@ -233,6 +233,11 @@ class UsersScreen(ctk.CTkFrame):
             return
         local_db.atualizar_usuario(usuario["id"], ativo=novo)
         self._carregar()
+        try:
+            from services.sync_manager import sync_manager
+            sync_manager.push_supabase_agora()
+        except Exception:
+            pass
 
     def _excluir(self, usuario: dict):
         if not messagebox.askyesno(
@@ -249,6 +254,11 @@ class UsersScreen(ctk.CTkFrame):
                 pass
         local_db.atualizar_usuario(usuario["id"], ativo=0)   # soft-delete
         self._carregar()
+        try:
+            from services.sync_manager import sync_manager
+            sync_manager.push_supabase_agora()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Modais
@@ -482,3 +492,8 @@ class ModalUsuario(ctk.CTkToplevel):
 
         self.destroy()
         self._on_salvar()
+        try:
+            from services.sync_manager import sync_manager
+            sync_manager.push_supabase_agora()
+        except Exception:
+            pass
