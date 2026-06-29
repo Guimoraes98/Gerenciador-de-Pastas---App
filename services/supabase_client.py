@@ -53,18 +53,29 @@ def _pull_usuarios(client, res: dict):
             try:
                 with local_db.get_conn() as conn:
                     row = conn.execute(
-                        "SELECT id FROM usuarios WHERE supabase_id = ? OR email = ?",
+                        "SELECT id, senha_alterada FROM usuarios WHERE supabase_id = ? OR email = ?",
                         (str(u["id"]), u["email"])
                     ).fetchone()
                     if row:
-                        conn.execute("""
-                            UPDATE usuarios
-                            SET nome=?, senha_hash=?, tipo=?, ativo=?,
-                                supabase_id=?, atualizado_em=?
-                            WHERE id=?
-                        """, (u["nome"], u["senha_hash"], u["tipo"],
-                              1 if u["ativo"] else 0,
-                              str(u["id"]), _now(), row["id"]))
+                        # Não sobrescreve senha_hash se foi alterada localmente e ainda não sincronizada
+                        if row["senha_alterada"]:
+                            conn.execute("""
+                                UPDATE usuarios
+                                SET nome=?, tipo=?, ativo=?,
+                                    supabase_id=?, atualizado_em=?
+                                WHERE id=?
+                            """, (u["nome"], u["tipo"],
+                                  1 if u["ativo"] else 0,
+                                  str(u["id"]), _now(), row["id"]))
+                        else:
+                            conn.execute("""
+                                UPDATE usuarios
+                                SET nome=?, senha_hash=?, tipo=?, ativo=?,
+                                    supabase_id=?, atualizado_em=?
+                                WHERE id=?
+                            """, (u["nome"], u["senha_hash"], u["tipo"],
+                                  1 if u["ativo"] else 0,
+                                  str(u["id"]), _now(), row["id"]))
                     else:
                         conn.execute("""
                             INSERT INTO usuarios
@@ -101,10 +112,13 @@ def _pull_pastas(client, res: dict):
                     local_vend_id = vend_row["id"]
 
                     existing = conn.execute(
-                        "SELECT id FROM pastas WHERE supabase_id = ?", (pid_str,)
+                        "SELECT id, sync_status FROM pastas WHERE supabase_id = ?", (pid_str,)
                     ).fetchone()
 
                     if existing:
+                        # Não restaura pasta marcada para exclusão local
+                        if existing["sync_status"] == "deletar":
+                            continue
                         conn.execute("""
                             UPDATE pastas
                             SET nome_pasta=?, nome_cliente=?, cidade=?, kwp=?,
@@ -269,6 +283,7 @@ def sincronizar_tudo() -> dict:
         return resultado
 
     # 1. Push — envia dados locais primeiro para não perder mudanças locais
+    _sync_pastas_deletadas(client, resultado)  # Remove do Supabase pastas excluídas localmente
     _sync_usuarios(client, resultado)
     _sync_metas(client, resultado)
     _sync_pastas(client, resultado)
@@ -286,26 +301,58 @@ def sincronizar_tudo() -> dict:
 # Push por tabela (local → Supabase)
 # ------------------------------------------------------------------
 
+def _sync_pastas_deletadas(client, res: dict):
+    """Remove do Supabase (e depois do banco local) pastas marcadas sync_status='deletar'."""
+    with local_db.get_conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, supabase_id FROM pastas WHERE sync_status = 'deletar' AND supabase_id IS NOT NULL"
+        ).fetchall()]
+
+    for row in rows:
+        try:
+            client.table("documentos").delete().eq("pasta_id", row["supabase_id"]).execute()
+            client.table("pastas").delete().eq("id", row["supabase_id"]).execute()
+            with local_db.get_conn() as conn:
+                conn.execute("DELETE FROM pastas WHERE id = ?", (row["id"],))
+            res["ok"] += 1
+        except Exception as e:
+            res["erros"] += 1
+            res["detalhes_erro"].append(f"delete_pasta_remota: {e}")
+
+
 def _sync_usuarios(client, res: dict):
     for u in local_db.listar_usuarios():
         try:
             dados = {
-                "nome":       u["nome"],
-                "email":      u["email"],
-                "senha_hash": u["senha_hash"],
-                "tipo":       u["tipo"],
-                "ativo":      bool(u["ativo"]),
-                "local_id":   u["id"],
+                "nome":     u["nome"],
+                "email":    u["email"],
+                "tipo":     u["tipo"],
+                "ativo":    bool(u["ativo"]),
+                "local_id": u["id"],
             }
             sid = u.get("supabase_id")
             if sid:
+                # Só envia senha_hash se foi alterada localmente desde o último sync
+                if u.get("senha_alterada"):
+                    dados["senha_hash"] = u["senha_hash"]
                 client.table("usuarios").update(dados).eq("id", sid).execute()
+                if u.get("senha_alterada"):
+                    with local_db.get_conn() as conn:
+                        conn.execute(
+                            "UPDATE usuarios SET senha_alterada = 0 WHERE id = ?", (u["id"],)
+                        )
             else:
+                # Novo usuário: sempre envia senha_hash na criação inicial
+                dados["senha_hash"] = u["senha_hash"]
                 r = client.table("usuarios").upsert(
                     dados, on_conflict="email"
                 ).execute()
                 if r.data:
                     local_db.set_supabase_id("usuarios", u["id"], str(r.data[0]["id"]))
+                    with local_db.get_conn() as conn:
+                        conn.execute(
+                            "UPDATE usuarios SET senha_alterada = 0 WHERE id = ?", (u["id"],)
+                        )
             res["ok"] += 1
         except Exception as e:
             res["erros"] += 1

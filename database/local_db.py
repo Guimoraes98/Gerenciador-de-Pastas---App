@@ -132,6 +132,18 @@ def init_db():
 
     # Garante que existe ao menos um usuário ADM
     _garantir_adm_padrao()
+    _migrar_schema()
+
+
+def _migrar_schema():
+    """Aplica migrações incrementais no schema sem recriar tabelas existentes."""
+    with get_conn() as conn:
+        try:
+            conn.execute(
+                "ALTER TABLE usuarios ADD COLUMN senha_alterada INTEGER NOT NULL DEFAULT 0"
+            )
+        except Exception:
+            pass  # Coluna já existe
 
 
 def _garantir_adm_padrao():
@@ -202,6 +214,7 @@ def atualizar_usuario(user_id: int, **kwargs):
         campos.append("email = ?"); valores.append(kwargs["email"].lower().strip())
     if "senha" in kwargs:
         campos.append("senha_hash = ?"); valores.append(_hash(kwargs["senha"]))
+        campos.append("senha_alterada = ?"); valores.append(1)
     if "ativo" in kwargs:
         campos.append("ativo = ?"); valores.append(int(kwargs["ativo"]))
     if "avatar_path" in kwargs:
@@ -266,7 +279,7 @@ def listar_pastas(vendedor_id: int = None, mes: int = None, ano: int = None):
     Lista pastas com filtros opcionais.
     Se vendedor_id=None, retorna de todos os vendedores (visão ADM).
     """
-    query = "SELECT * FROM pastas WHERE 1=1"
+    query = "SELECT * FROM pastas WHERE 1=1 AND (sync_status IS NULL OR sync_status != 'deletar')"
     params = []
     if vendedor_id is not None:
         query += " AND vendedor_id = ?"; params.append(vendedor_id)
@@ -303,7 +316,12 @@ def atualizar_drive_pasta(pasta_id: int, drive_folder_id: str):
 
 
 def excluir_pasta(pasta_id: int) -> str | None:
-    """Remove pasta (e documentos via CASCADE). Retorna supabase_id para exclusão remota."""
+    """
+    Marca pasta para exclusão. Se tiver supabase_id, usa tombstone (sync_status='deletar')
+    para que o próximo ciclo de sync delete do Supabase antes de remover localmente.
+    Se não tiver supabase_id, deleta imediatamente do banco local.
+    Retorna supabase_id para referência externa.
+    """
     with get_conn() as conn:
         row = conn.execute(
             "SELECT drive_folder_id, supabase_id FROM pastas WHERE id = ?", (pasta_id,)
@@ -315,7 +333,15 @@ def excluir_pasta(pasta_id: int) -> str | None:
                 INSERT INTO sync_queue (tipo, ref_id, operacao, ultimo_erro)
                 VALUES ('pasta', ?, 'delete', ?)
             """, (pasta_id, drive_id))
-        conn.execute("DELETE FROM pastas WHERE id = ?", (pasta_id,))
+        if supabase_id:
+            # Tombstone: mantém no banco local marcada para deleção remota.
+            # O próximo sync deleta do Supabase e depois remove daqui.
+            conn.execute(
+                "UPDATE pastas SET sync_status = 'deletar', atualizado_em = ? WHERE id = ?",
+                (_now(), pasta_id)
+            )
+        else:
+            conn.execute("DELETE FROM pastas WHERE id = ?", (pasta_id,))
     return supabase_id
 
 

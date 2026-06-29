@@ -236,14 +236,13 @@ class FoldersScreen(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _excluir_pasta(self, pasta_id: int):
-        supabase_id = local_db.excluir_pasta(pasta_id)
+        local_db.excluir_pasta(pasta_id)
         self._carregar_pastas()
-        if supabase_id:
-            import threading
-            def _remover_remoto():
-                from services.supabase_client import excluir_pasta_remota
-                excluir_pasta_remota(supabase_id)
-            threading.Thread(target=_remover_remoto, daemon=True).start()
+        try:
+            from services.sync_manager import sync_manager
+            sync_manager.push_supabase_agora()
+        except Exception:
+            pass
 
     def _abrir_editor(self, pasta: dict):
         ModalEditarPasta(self, pasta=pasta, on_success=self._carregar_pastas)
