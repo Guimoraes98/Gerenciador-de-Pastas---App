@@ -110,6 +110,8 @@ class SyncManager:
         try:
             from services.drive_service import sincronizar_fila, esta_autenticado
             if esta_autenticado():
+                from database.local_db import resetar_erros_sync_queue
+                resetar_erros_sync_queue()
                 res_drive = sincronizar_fila()
         except Exception:
             pass

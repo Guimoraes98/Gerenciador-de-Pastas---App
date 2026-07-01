@@ -569,3 +569,12 @@ def adicionar_sync_manual(pasta_id: int):
             INSERT INTO sync_queue (tipo, ref_id, operacao)
             VALUES ('pasta', ?, 'create')
         """, (pasta_id,))
+
+
+def resetar_erros_sync_queue():
+    """Zera o contador de tentativas de itens travados (>= 5 falhas).
+    Chamado pelo sync manual para que itens stuck ganhem nova chance."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE sync_queue SET tentativas = 0, ultimo_erro = NULL WHERE tentativas >= 5"
+        )
